@@ -1,0 +1,28 @@
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Production builds
+dist/
+**/dist/
+
+# Logs and test output
+*.log
+coverage/
+**/coverage/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+
+# Assessment reference document
+Challenge Overview.docx
