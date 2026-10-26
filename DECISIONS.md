@@ -1,86 +1,37 @@
-
 # InquiryFlow — Design Decisions
 
-## 1. Assumptions
+## Assumptions
 
-InquiryFlow is designed for a small customer-support team that needs simple way to record and track customer inquiries.
+InquiryFlow is designed for a small customer-support team. Staff accounts are created in advance and public registration is not required. All authenticated staff can access and manage inquiries in a shared workspace. Inquiries use three statuses New, In Progress and Resolved. PostgreSQL stores staff, inquiry and status-history data.
 
-- Staff accounts are created in advance, public registration is not required.
-- All authenticated staff members can view and manage all inquiries.
-- Inquiries are managed through three statuses New, In Progress and Resolved.
-- PostgreSQL is the source of truth for inquiry and staff data.
+## Key Design Choices
 
-## 2. Key Design Decisions
+**1. Shared staff access with backend authentication**
 
-### Shared Staff Access
+Every authenticated staff member can view and manage all inquiries. This avoids complex ownership rules for a small team. Passwords are hashed using bcrypt and inquiry API endpoints require a valid JWT. Unauthenticated users cannot access inquiry data, even when bypassing the frontend or using a direct link.
 
-Every authenticated staff member can view and update all inquiries.
+**2. Controlled status transitions and history**
 
-This keeps the workflow simple for a small team and allows any available employee to continue handling a customer request. The backend protects inquiry endpoints using JWT authentication.
+Inquiries follow New → In Progress → Resolved. A resolved inquiry can be reopened to In Progress, but a reason is required. The backend validates transitions, and status history records workflow changes so staff can understand what happened previously.
 
-A more advanced system could introduce assigned owners and role-based permissions.
+**3. Duplicate warnings and input validation**
 
-### Controlled Status Transitions
+The application warns staff about possible duplicate unresolved inquiries while allowing explicit confirmation to create a separate record. Frontend validation provides immediate feedback, while backend Zod validation independently rejects invalid input.
 
-An inquiry follows this lifecycle:
+## Accepted Trade-off
 
-- New → In Progress
-- In Progress → Resolved
-- Resolved → In Progress (reopen)
+The application uses periodic polling instead of WebSockets to refresh inquiry data across browser tabs. Polling is simpler to implement and maintain, but updates are not instantaneous. Simultaneous edits may still require additional conflict handling.
 
-Other transitions are rejected by the backend.
+## Testing and Gaps
 
-This prevents accidental status changes while still allowing staff to reopen an inquiry when a customer needs further help. The frontend also asks for confirmation before changing a status.
+The automated test suite contains 11 passing backend tests and 2 passing frontend tests. Backend tests cover authentication, inquiry API behavior, and health checks. Frontend tests cover login form rendering and invalid-login feedback.
 
-### Duplicate Inquiry Handling
+Inquiry creation, duplicate handling, search/filtering, status transitions, reopening and history were also tested manually. Full end-to-end automation and concurrent-update tests remain future improvements.
 
-When a new inquiry resembles an existing unresolved inquiry from the same customer contact, backend returns a duplicate warning.
+## AI Assistance
 
-The user can review the existing inquiry or explicitly choose to create another one.
+AI tools assisted with architecture discussions, code suggestions, troubleshooting, tests, and documentation. One suggestion I accepted was using a separate PostgreSQL test database to prevent automated tests from modifying demonstration data. Suggestions were reviewed and verified through automated tests and manual checks.
 
-This avoids silently deleting or merging customer information while still reducing accidental duplicates.
+## Future Improvements
 
-## 3. Trade-off
-
-The application uses a shared inquiry workspace instead of implementing individual assignment or complex permissions.
-
-This is appropriate for the assessment's small-team workflow, but it does not identify one staff member as the person currently responsible for each inquiry.
-
-For stale data, the application refreshes the inquiry list after successful status update. It does not provide real-time synchronization across browser tabs. A second tab may temporarily show an outdated status until its data is refreshed.
-
-## 4. Validation and Error Handling
-
-The backend validates inquiry data independently of frontend form validation.
-
-Protected routes reject requests without valid authentication. Invalid status transitions and missing records are handled through API error responses.
-
-The interface provides feedback for failed requests, duplicate inquiries, empty search results and successful operations.
-
-## 5. Testing
-
-Backend tests cover authentication and access protection.
-
-Frontend tests verify login form rendering and invalid-login feedback.
-
-The inquiry creation, duplicate warning, search/filter, and status workflow have also been manually tested.
-
-Automated integration tests for the full inquiry lifecycle and concurrent updates are areas for future improvement.
-
-## 6. Use of AI Tools
-
-AI assistance was used to discuss architecture, generate initial code suggestions, troubleshoot implementation issues and help prepare tests and documentation.
-
-One suggestion accepted was using a separate PostgreSQL test database to prevent automated tests from affecting demonstration data.
-
-The implementation was tested through terminal commands and manual browser checks and suggestions were adjusted when issues were identified.
-
-## 7. Future Improvements
-
-Given more time, I would add:
-
-- Inquiry assignment and clearer ownership tracking
-- Audit history for status changes
-- Better handling of stale updates across browser tabs
-- More automated integration and frontend tests
-
-The priority for this assessment was a reliable, understandable end-to-end workflow rather than a large feature set.
+Given more time, I would add inquiry assignment, role-based permissions, real-time synchronization, conflict detection for simultaneous edits and broader automated end-to-end test coverage.

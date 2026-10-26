@@ -1,54 +1,63 @@
-
 # InquiryFlow — Customer Inquiry Management System
 
-A full-stack web application built for the Coffee Ninja (Pvt) Ltd Full-Stack Development Technical Assessment.
+A full-stack customer inquiry management application developed for the **Coffee Ninja (Pvt) Ltd Full-Stack Development Technical Assessment**.
 
-InquiryFlow helps staff record customer inquiries, find existing requests, and track each inquiry from creation to resolution.
+InquiryFlow allows staff members to record customer inquiries, identify possible duplicates, search and filter existing inquiries and manage each inquiry throughout its lifecycle.
 
 ## Tech Stack
 
-- Frontend: React, Vite, CSS, Lucide React
-- Backend: Node.js, Express
-- Database: PostgreSQL
-- Authentication: JWT, bcrypt
-- Validation: Zod
-- Testing: Vitest, Supertest, React Testing Library
+| Layer | Technologies |
+|---|---|
+| Frontend | React 19, Vite 8, CSS, Lucide React |
+| Backend | Node.js, Express 5 |
+| Database | PostgreSQL |
+| Authentication | JSON Web Tokens (JWT), bcrypt |
+| Validation | Zod |
+| Testing | Vitest, Supertest, React Testing Library |
 
 ## Features
 
-- Staff sign-in with backend-enforced authentication
-- Create customer inquiries
-- Search inquiries by customer, contact, or subject
+- Staff authentication with JWT-protected API endpoints
+- Automatic logout after a period of inactivity
+- Create customer inquiries with form validation
+- Duplicate inquiry detection with a warning and manual confirmation
+- Search inquiries by customer information, contact details or subject
 - Filter inquiries by status
-- Track inquiry status: New, In Progress, Resolved
-- Reopen resolved inquiries
-- Duplicate inquiry warning with manual confirmation
-- Form validation and error feedback
-- Persistent storage in PostgreSQL
+- Track inquiry status: **New → In Progress → Resolved**
+- Reopen resolved inquiries with a required reason
+- View inquiry status-change history
+- View and edit inquiry details
+- Dashboard summary cards for inquiry statuses
+- Automatic inquiry refresh and cross-tab updates
+- Responsive user interface
+- Persistent PostgreSQL storage
 
 ## Prerequisites
 
-- Node.js 22+
+- Node.js 22 or later
 - PostgreSQL
 - npm
 
-## Database Setup
+## Project Setup
+
+### 1. Database Setup
 
 Create a PostgreSQL database named:
 
 `customer_inquiry_management_system`
 
-Run the SQL schema provided in the `database` directory.
+Execute the SQL schema included in the `database` directory.
 
-## Backend Setup
+### 2. Backend Setup
 
 Open a terminal in the `server` directory:
 
 ```bash
+cd server
 npm install
 ```
 
-Create a `.env` file:
+Create `server/.env`:
 
 ```env
 DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/customer_inquiry_management_system
@@ -57,29 +66,34 @@ PORT=5000
 CLIENT_URL=http://localhost:5173
 ```
 
-Seed the demo staff accounts:
+Replace the placeholder database password and JWT secret with your own values.
+
+Seed the demonstration staff accounts:
 
 ```bash
 npm run seed
 ```
 
-Start the backend:
+Start the backend development server:
 
 ```bash
 npm run dev
 ```
 
-Backend API: `http://localhost:5000`
+The backend runs at:
 
-## Frontend Setup
+`http://localhost:5000`
 
-Open another terminal in the `client` directory:
+### 3. Frontend Setup
+
+Open a separate terminal in the `client` directory:
 
 ```bash
+cd client
 npm install
 ```
 
-Create a `.env` file:
+Create `client/.env`:
 
 ```env
 VITE_API_URL=http://localhost:5000/api
@@ -91,69 +105,107 @@ Start the frontend:
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+Open:
+
+`http://localhost:5173`
 
 ## Demo Accounts
 
-For local assessment testing only:
+The following accounts are intended for local assessment testing only.
 
 | Email | Password |
-| --- | --- |
+|---|---|
 | staff1@coffeeninja.local | DemoStaff123! |
 | staff2@coffeeninja.local | DemoStaff456! |
 
-These are seeded demonstration accounts, not production credentials.
+These are demonstration credentials and must not be reused in production.
 
 ## API Endpoints
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| GET | `/api/health` | Health check |
-| POST | `/api/auth/login` | Staff login |
-| GET | `/api/auth/me` | Current staff profile |
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/health` | Check API health |
+| POST | `/api/auth/login` | Authenticate a staff member |
+| GET | `/api/auth/me` | Retrieve the authenticated staff profile |
 | GET | `/api/inquiries` | List, search, and filter inquiries |
 | POST | `/api/inquiries` | Create an inquiry |
-| PATCH | `/api/inquiries/:id/status` | Update inquiry status |
+| PATCH | `/api/inquiries/:id/status` | Change an inquiry's status |
 
-Inquiry endpoints require a valid JWT bearer token.
+Inquiry management endpoints require a valid JWT bearer token.
+
+Additional inquiry detail, editing, and history operations are implemented in the application.
 
 ## Testing
 
-### Backend
+### Backend Tests
 
-Create a separate PostgreSQL database:
+Create a separate PostgreSQL test database:
 
 `customer_inquiry_management_test`
 
-Apply the same database schema and create `server/.env.test` using the test database URL.
+Apply the database schema and configure `server/.env.test` to use the test database. Seed the required demonstration staff accounts in the test database.
 
-Seed the test database with the demo staff accounts.
-
-From the `server` directory:
+From the `server` directory, run:
 
 ```bash
 npm test
 ```
 
-### Frontend
+**Latest result: 11 tests passed across 3 test files.**
 
-From the `client` directory:
+The automated backend suite covers authentication, inquiry endpoints, and the health endpoint.
+
+### Frontend Tests
+
+From the `client` directory, run:
+
+```bash
+npm test
+```
+
+Alternatively:
 
 ```bash
 npx vitest run
 ```
 
-Current test results:
+**Latest result: 2 tests passed.**
 
-- Backend: 11 passing
-- Frontend: 2 passing
+The frontend tests verify login form rendering and invalid-login feedback.
 
-Backend tests cover authentication and protected routes. Frontend tests cover login form rendering and invalid-login feedback. Inquiry creation, duplicate handling, and status transitions have also been manually tested, but are not yet covered by automated integration tests.
+### Production Build
 
-## Key Design Decisions
+From the `client` directory:
 
-See [DECISIONS.md](./DECISIONS.md) for assumptions, design choices, trade-offs, and future improvements.
+```bash
+npm run build
+```
 
-## Notes
+The production-ready frontend files are generated in `client/dist`.
 
-This project is intended for local demonstration. Production hosting and external messaging integrations are outside the assessment scope.
+**Latest result: build successful.**
+
+### Manual Verification
+
+The following workflows have also been manually tested during development:
+
+- Staff login and logout
+- Inquiry creation and duplicate warning
+- Search and status filtering
+- Inquiry detail viewing and editing
+- Status transitions
+- Reopening a resolved inquiry with a reason
+- Status history viewing
+- Automatic refresh and cross-tab updates
+
+Not all application workflows currently have automated end-to-end test coverage.
+
+## Design Decisions
+
+See [DECISIONS.md](./DECISIONS.md) for architectural decisions, assumptions, trade-offs, and possible future improvements.
+
+## Project Scope
+
+InquiryFlow is designed for local demonstration as part of a technical assessment.
+
+Production deployment, external notification integrations, and advanced reporting are outside the current scope.

@@ -25,6 +25,21 @@ export const createInquirySchema = z.object({
     confirmDuplicate: z.boolean().optional().default(false),
 });
 
+// Validate editable inquiry details.
+export const editInquirySchema = z.object({
+    customer_name: z.string().trim().min(2).max(150),
+    customer_contact: z.string().trim().min(3).max(255),
+    subject: z.string().trim().min(3).max(200),
+    description: z.string().trim().min(5).max(2000),
+    source_channel: z.enum([
+        'Phone Call',
+        'Email',
+        'WhatsApp',
+        'Website',
+        'Other',
+    ]),
+}).strict();
+
 export const inquiryListSchema = z.object({
     q: z.string().trim().max(100).optional(),
     status: z.enum(inquiryStatuses).optional(),
@@ -32,4 +47,22 @@ export const inquiryListSchema = z.object({
 
 export const updateStatusSchema = z.object({
     status: z.enum(inquiryStatuses),
+
+    // Required only when reopening a resolved inquiry.
+    reopen_reason: z
+        .string()
+        .trim()
+        .min(10, 'Reopen reason must contain at least 10 characters')
+        .max(500, 'Reopen reason cannot exceed 500 characters')
+        .optional(),
+}).superRefine((data, ctx) => {
+    // Any request targeting In Progress may be a reopen.
+    // The controller will check the current status.
+    if (data.reopen_reason && data.status !== 'In Progress') {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['reopen_reason'],
+            message: 'Reopen reason is only allowed for In Progress status',
+        });
+    }
 });

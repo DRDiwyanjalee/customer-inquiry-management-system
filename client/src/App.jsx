@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { apiRequest } from './api';
 import {
   Search, Plus, LogOut, RefreshCw, Inbox,
-  AlertCircle, CheckCircle2, Clock, X,
+  AlertCircle, CheckCircle2, Clock, X, Pencil, Play,
 } from 'lucide-react';
 import './App.css';
 
@@ -42,45 +42,112 @@ function App() {
   const [viewingDuplicates, setViewingDuplicates] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const [reopeningInquiry, setReopeningInquiry] = useState(null);
+  const [reopenReason, setReopenReason] = useState('');
+  const [reopenSaving, setReopenSaving] = useState(false);
+  const [reopenError, setReopenError] = useState('');
+
+  const [historyInquiry, setHistoryInquiry] = useState(null);
+  const [statusHistory, setStatusHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+
+  // Selected inquiry and editable details.
+  const [detailsInquiry, setDetailsInquiry] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState(emptyForm);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
 
   // Automatically sign out after 15 minutes without user activity.
   useEffect(() => {
     if (!token || !user) return;
 
     const INACTIVITY_LIMIT = 15 * 60 * 1000;
+    const ACTIVITY_KEY = 'inquiryflow_last_activity';
+
     let inactivityTimer;
 
     function signOutForInactivity() {
+      clearTimeout(inactivityTimer);
+
       localStorage.removeItem('inquiry_token');
+      localStorage.removeItem(ACTIVITY_KEY);
+
       setToken('');
       setUser(null);
       setInquiries([]);
       setNotice('');
-      setLoginError('Your session ended due to inactivity. Please sign in again.');
+      setLoginError(
+        'Your session ended due to inactivity. Please sign in again.'
+      );
+    }
+
+    function checkInactivity() {
+      const lastActivity = Number(localStorage.getItem(ACTIVITY_KEY));
+
+      if (!lastActivity || Date.now() - lastActivity >= INACTIVITY_LIMIT) {
+        signOutForInactivity();
+        return false;
+      }
+
+      return true;
     }
 
     function resetInactivityTimer() {
       clearTimeout(inactivityTimer);
-      inactivityTimer = setTimeout(signOutForInactivity, INACTIVITY_LIMIT);
+
+      const lastActivity = Number(localStorage.getItem(ACTIVITY_KEY));
+      const remaining = INACTIVITY_LIMIT - (Date.now() - lastActivity);
+
+      if (remaining <= 0) {
+        signOutForInactivity();
+        return;
+      }
+
+      inactivityTimer = setTimeout(signOutForInactivity, remaining);
     }
+
+    function recordActivity() {
+      // Never revive a session that has already expired.
+      if (!checkInactivity()) return;
+
+      localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
+      resetInactivityTimer();
+    }
+
+    function handleReturnToTab() {
+      if (!document.hidden && checkInactivity()) {
+        resetInactivityTimer();
+      }
+    }
+
+    // Check the stored timestamp before starting the timer.
+    if (!checkInactivity()) return;
+
+    resetInactivityTimer();
 
     const events = ['mousemove', 'keydown', 'click', 'touchstart'];
 
     events.forEach((event) => {
-      window.addEventListener(event, resetInactivityTimer);
+      window.addEventListener(event, recordActivity);
     });
 
-    resetInactivityTimer();
+    window.addEventListener('focus', handleReturnToTab);
+    document.addEventListener('visibilitychange', handleReturnToTab);
 
     return () => {
       clearTimeout(inactivityTimer);
 
       events.forEach((event) => {
-        window.removeEventListener(event, resetInactivityTimer);
+        window.removeEventListener(event, recordActivity);
       });
+
+      window.removeEventListener('focus', handleReturnToTab);
+      document.removeEventListener('visibilitychange', handleReturnToTab);
     };
   }, [token, user]);
-
 
   // Verify the saved token and load the staff profile.
   useEffect(() => {
@@ -161,6 +228,91 @@ function App() {
     };
   }, [token, user, query, statusFilter]);
 
+  // Refresh inquiries when the user returns to this tab.
+  useEffect(() => {
+    if (!token || !user) return;
+
+    let refreshing = false;
+
+    async function refreshOnReturn() {
+      // Only refresh when this tab is visible.
+      if (document.hidden || refreshing) return;
+
+      // Do not make a request after the inactivity session expires.
+      const lastActivity = Number(
+        localStorage.getItem('inquiryflow_last_activity')
+      );
+
+      const inactiveTooLong =
+        !lastActivity || Date.now() - lastActivity >= 15 * 60 * 1000;
+
+      if (inactiveTooLong) return;
+
+      refreshing = true;
+
+      try {
+        // Keep the current search and status filter.
+        const params = new URLSearchParams();
+
+        if (query.trim()) params.set('q', query.trim());
+        if (statusFilter) params.set('status', statusFilter);
+
+        const { response, data } = await apiRequest(
+          `/inquiries?${params.toString()}`,
+          { token }
+        );
+
+        if (response.status === 401) {
+          // Sign out if the server rejects the session.
+          localStorage.removeItem('inquiry_token');
+          localStorage.removeItem('inquiryflow_last_activity');
+
+          setToken('');
+          setUser(null);
+          setInquiries([]);
+          setLoginError('Your session has expired. Please sign in again.');
+          return;
+        }
+
+        if (response.ok && data.success) {
+          setInquiries(data.inquiries || []);
+          setPageError('');
+        } else {
+          setPageError(data.message || 'Unable to refresh inquiries.');
+        }
+      } catch {
+        setPageError('Unable to refresh inquiries. Check your connection.');
+      } finally {
+        refreshing = false;
+      }
+    }
+
+    // Switching tabs or returning to the browser triggers a refresh.
+    function handleTabReturn() {
+      if (!document.hidden) {
+        refreshOnReturn();
+      }
+    }
+
+    // Refresh when the user returns to this tab.
+    document.addEventListener('visibilitychange', handleTabReturn);
+    window.addEventListener('focus', handleTabReturn);
+
+    // Check for updates every 30 seconds while the tab is visible.
+    const refreshInterval = setInterval(() => {
+      if (!document.hidden) {
+        refreshOnReturn();
+      }
+    }, 30000);
+
+    // Clean up listeners and polling when the component changes.
+    return () => {
+      clearInterval(refreshInterval);
+      document.removeEventListener('visibilitychange', handleTabReturn);
+      window.removeEventListener('focus', handleTabReturn);
+    };
+  }, [token, user, query, statusFilter]);
+
   useEffect(() => {
     sessionStorage.setItem('inquiryflow_query', query);
     sessionStorage.setItem('inquiryflow_status', statusFilter);
@@ -183,6 +335,7 @@ function App() {
       }
 
       localStorage.setItem('inquiry_token', data.token);
+      localStorage.setItem('inquiryflow_last_activity', String(Date.now()));
       setUser(data.user);
       setToken(data.token);
       setNotice('Welcome back!');
@@ -195,6 +348,7 @@ function App() {
 
   function logout() {
     localStorage.removeItem('inquiry_token');
+    localStorage.removeItem('inquiryflow_last_activity');
     setToken('');
     setUser(null);
     setInquiries([]);
@@ -254,7 +408,7 @@ function App() {
   }
 
 
-  async function changeStatus(inquiry) {
+  async function changeStatus(inquiry, reason = null) {
     const nextStatus = {
       New: 'In Progress',
       'In Progress': 'Resolved',
@@ -263,43 +417,60 @@ function App() {
 
     if (!nextStatus) {
       setPageError('Invalid status transition.');
-      return;
+      return false;
     }
 
-    const confirmed = window.confirm(
-      `Are you sure you want to change inquiry #${inquiry.id} from "${inquiry.status}" to "${nextStatus}"?`
-    );
+    // Reopening requires a reason entered through our modal.
+    if (inquiry.status === 'Resolved' && reason === null) {
+      setReopeningInquiry(inquiry);
+      setReopenReason('');
+      setReopenError('');
+      return false;
+    }
 
-    if (!confirmed) return;
+    if (inquiry.status !== 'Resolved') {
+      const confirmed = window.confirm(
+        `Change inquiry #${inquiry.id} from "${inquiry.status}" to "${nextStatus}"?`
+      );
+
+      if (!confirmed) return false;
+    }
 
     setPageError('');
     setNotice('');
 
     try {
+      const payload = { status: nextStatus };
+
+      if (inquiry.status === 'Resolved') {
+        payload.reopen_reason = reason;
+      }
+
       const { response, data } = await apiRequest(
         `/inquiries/${inquiry.id}/status`,
         {
           method: 'PATCH',
           token,
-          body: JSON.stringify({ status: nextStatus }),
+          body: JSON.stringify(payload),
         }
       );
 
       if (!response.ok || !data.success) {
-        setPageError(data.message || 'Unable to update status.');
-        return;
+        const message = data.message || 'Unable to update status.';
+
+        if (inquiry.status === 'Resolved') {
+          setReopenError(message);
+        } else {
+          setPageError(message);
+        }
+
+        return false;
       }
 
-      // Reload inquiries using the currently selected search and filter.
       const params = new URLSearchParams();
 
-      if (query.trim()) {
-        params.set('q', query.trim());
-      }
-
-      if (statusFilter) {
-        params.set('status', statusFilter);
-      }
+      if (query.trim()) params.set('q', query.trim());
+      if (statusFilter) params.set('status', statusFilter);
 
       const refreshed = await apiRequest(
         `/inquiries?${params.toString()}`,
@@ -312,9 +483,111 @@ function App() {
         setPageError('Status updated, but the list could not be refreshed.');
       }
 
-      setNotice(`Inquiry #${inquiry.id} changed to ${nextStatus}.`);
+      setNotice(
+        inquiry.status === 'Resolved'
+          ? `Inquiry #${inquiry.id} reopened successfully.`
+          : `Inquiry #${inquiry.id} changed to ${nextStatus}.`
+      );
+
+      return true;
     } catch {
-      setPageError('Cannot connect to the API server.');
+      const message = 'Cannot connect to the API server.';
+
+      if (inquiry.status === 'Resolved') {
+        setReopenError(message);
+      } else {
+        setPageError(message);
+      }
+
+      return false;
+    }
+  }
+
+  // Load the status history of the selected inquiry
+  async function openHistory(inquiry) {
+    setHistoryInquiry(inquiry);
+    setStatusHistory([]);
+    setHistoryError('');
+    setHistoryLoading(true);
+
+    try {
+      const { response, data } = await apiRequest(
+        `/inquiries/${inquiry.id}/history`,
+        { token }
+      );
+
+      if (!response.ok || !data.success) {
+        setHistoryError(data.message || 'Unable to load status history.');
+        return;
+      }
+
+      // Save the returned history records
+      setStatusHistory(data.history || []);
+    } catch {
+      setHistoryError('Cannot connect to the API server.');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  // Open the inquiry details modal.
+  function openDetails(inquiry) {
+    setDetailsInquiry(inquiry);
+
+    // Fill the form with the selected inquiry's current values.
+    setEditForm({
+      customer_name: inquiry.customer_name,
+      customer_contact: inquiry.customer_contact,
+      subject: inquiry.subject,
+      description: inquiry.description,
+      source_channel: inquiry.source_channel,
+    });
+
+    setIsEditing(false);
+    setEditError('');
+  }
+
+  // Save edited inquiry details to the database.
+  async function saveInquiryEdit(event) {
+    event.preventDefault();
+    if (!detailsInquiry || editSaving) return;
+
+    setEditSaving(true);
+    setEditError('');
+
+    try {
+      const { response, data } = await apiRequest(
+        `/inquiries/${detailsInquiry.id}`,
+        {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify(editForm),
+        }
+      );
+
+      if (!response.ok || !data.success) {
+        // Show the backend validation message.
+        const firstError = data.errors?.[0]?.message;
+        setEditError(firstError || data.message || 'Unable to save changes.');
+        return;
+      }
+
+      // Update the details modal and the inquiry list.
+      setDetailsInquiry(data.inquiry);
+      setInquiries((current) =>
+        current.map((item) =>
+          item.id === data.inquiry.id
+            ? { ...item, ...data.inquiry }
+            : item
+        )
+      );
+
+      setIsEditing(false);
+      setNotice(`Inquiry #${detailsInquiry.id} updated successfully.`);
+    } catch {
+      setEditError('Cannot connect to the API server.');
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -374,15 +647,20 @@ function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
+        {/* Application branding */}
         <div className="sidebar-brand">
-          <div className="brand-mark small-mark">IF</div>
+          <div className="brand-symbol">
+            <Inbox size={25} strokeWidth={2.2} />
+          </div>
+
           <div>
-            <strong>InquiryFlow</strong>
+            <strong>
+              Inquiry<span className="brand-accent">Flow</span>
+            </strong>
             <span>Inquiry Desk</span>
           </div>
         </div>
 
-        <div className="sidebar-label">WORKSPACE</div>
         <div className="nav-item active">
           <Inbox size={18} /> Inquiries
         </div>
@@ -526,7 +804,8 @@ function App() {
               <tbody>
                 {inquiries.map((item) => (
                   <tr key={item.id}>
-                    <td>
+                    {/* Customer and inquiry summary */}
+                    <td className="customer-cell">
                       <strong>{item.customer_name}</strong>
                       <span className="table-subtitle">{item.subject}</span>
                       <span className="table-description">{item.description}</span>
@@ -534,22 +813,76 @@ function App() {
                     <td>{item.customer_contact}</td>
                     <td>{item.source_channel}</td>
                     <td>
-                      <span className={`status-pill ${item.status.toLowerCase().replace(' ', '-')}`}>
-                        {item.status}
-                      </span>
+                      <div className="status-cell">
+                        <span
+                          className={`status-pill ${item.status.toLowerCase().replace(' ', '-')}`}
+                        >
+                          {item.status}
+                        </span>
+
+                        {item.was_reopened && (
+                          <span className="reopened-badge">
+                            <RefreshCw size={12} />
+                            Reopened
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>{new Date(item.created_at).toLocaleDateString()}</td>
                     <td>
-                      <button
-                        className="secondary-button"
-                        onClick={() => changeStatus(item)}
-                      >
-                        {item.status === 'New'
-                          ? 'Start'
-                          : item.status === 'In Progress'
-                            ? 'Resolve'
-                            : 'Reopen'}
-                      </button>
+                      {/* Compact inquiry actions */}
+                      <div className="table-actions">
+                        {/* Change status using a color based on the action */}
+                        <button
+                          type="button"
+                          className={`action-status ${item.status === 'New'
+                              ? 'action-start'
+                              : item.status === 'In Progress'
+                                ? 'action-resolve'
+                                : 'action-reopen'
+                            }`}
+                          onClick={() => changeStatus(item)}
+                        >
+                          {item.status === 'New' ? (
+                            <>
+                              <Play size={14} fill="currentColor" />
+                              Start
+                            </>
+                          ) : item.status === 'In Progress' ? (
+                            <>
+                              <CheckCircle2 size={14} />
+                              Resolve
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw size={14} />
+                              Reopen
+                            </>
+                          )}
+                        </button>
+
+                        {/* Open inquiry details and edit form */}
+                        <button
+                          type="button"
+                          className="secondary-button action-icon"
+                          title="View or edit inquiry"
+                          aria-label={`View details for inquiry ${item.id}`}
+                          onClick={() => openDetails(item)}
+                        >
+                          <Pencil size={16} />
+                        </button>
+
+                        {/* View status history */}
+                        <button
+                          type="button"
+                          className="secondary-button action-icon"
+                          title="View status history"
+                          aria-label={`View history for inquiry ${item.id}`}
+                          onClick={() => openHistory(item)}
+                        >
+                          <Clock size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -666,6 +999,415 @@ function App() {
           </section>
         </div>
       )}
+
+      {reopeningInquiry && (
+        <div className="modal-backdrop">
+          <section
+            className="modal-card reopen-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reopen-title"
+          >
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">INQUIRY LIFECYCLE</p>
+                <h2 id="reopen-title">Reopen inquiry</h2>
+              </div>
+
+              <button
+                type="button"
+                className="icon-button"
+                disabled={reopenSaving}
+                aria-label="Close reopen dialog"
+                onClick={() => setReopeningInquiry(null)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="reopen-summary">
+              <span className="reopen-reference">
+                Inquiry #{reopeningInquiry.id}
+              </span>
+
+              <h3>{reopeningInquiry.subject}</h3>
+              <p>{reopeningInquiry.customer_name}</p>
+
+              <div className="reopen-transition">
+                <span className="status-pill resolved">Resolved</span>
+                <span aria-hidden="true">→</span>
+                <span className="status-pill in-progress">In Progress</span>
+              </div>
+            </div>
+
+            <form
+              className="form-stack"
+              onSubmit={async (event) => {
+                event.preventDefault();
+
+                const reason = reopenReason.trim();
+
+                if (reason.length < 10 || reason.length > 500) {
+                  setReopenError('Reason must be between 10 and 500 characters.');
+                  return;
+                }
+
+                setReopenError('');
+                setReopenSaving(true);
+
+                try {
+                  const success = await changeStatus(reopeningInquiry, reason);
+
+                  if (success) {
+                    setReopeningInquiry(null);
+                    setReopenReason('');
+                  }
+                } finally {
+                  setReopenSaving(false);
+                }
+              }}
+            >
+              <label>
+                Reason for reopening
+                <textarea
+                  value={reopenReason}
+                  onChange={(event) => {
+                    setReopenReason(event.target.value);
+                    setReopenError('');
+                  }}
+                  minLength={10}
+                  maxLength={500}
+                  rows={4}
+                  required
+                  autoFocus
+                  placeholder="Explain why this inquiry needs further attention..."
+                />
+              </label>
+
+              <div className="reopen-helper">
+                <span>This reason will be saved in the status history.</span>
+                <span>{reopenReason.length}/500</span>
+              </div>
+
+              {reopenError && (
+                <p className="error-message" role="alert">
+                  {reopenError}
+                </p>
+              )}
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={reopenSaving}
+                  onClick={() => setReopeningInquiry(null)}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={
+                    reopenSaving ||
+                    reopenReason.trim().length < 10
+                  }
+                >
+                  <RefreshCw size={16} />
+                  {reopenSaving ? 'Reopening...' : 'Confirm reopen'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {/* Show the selected inquiry's status history */}
+      {historyInquiry && (
+        <div className="modal-backdrop">
+          <section
+            className="modal-card history-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="history-title"
+          >
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">ACTIVITY LOG</p>
+                <h2 id="history-title">Status history</h2>
+                <p className="muted">
+                  Inquiry #{historyInquiry.id} · {historyInquiry.subject}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close history"
+                onClick={() => setHistoryInquiry(null)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Show loading, error, empty state, or history records */}
+            {historyLoading ? (
+              <div className="history-feedback">
+                <RefreshCw size={20} />
+                <p>Loading history...</p>
+              </div>
+            ) : historyError ? (
+              <div className="history-feedback">
+                <AlertCircle size={20} />
+                <p>{historyError}</p>
+              </div>
+            ) : statusHistory.length === 0 ? (
+              <div className="history-feedback">
+                <Clock size={24} />
+                <p>No status changes recorded yet.</p>
+              </div>
+            ) : (
+              <div className="history-timeline">
+                {/* Display each status change */}
+                {statusHistory.map((entry) => (
+                  <article className="history-entry" key={entry.id}>
+                    <span className="history-dot" />
+
+                    <div className="history-entry-content">
+                      <div className="history-transition">
+                        <span>{entry.previous_status}</span>
+                        <span aria-hidden="true">→</span>
+                        <strong>{entry.new_status}</strong>
+                      </div>
+
+                      {/* Staff member and change date */}
+                      <p className="history-meta">
+                        {entry.changed_by_name} ·{' '}
+                        {new Date(entry.changed_at).toLocaleString()}
+                      </p>
+
+                      {/* Only reopened inquiries have a reopen reason */}
+                      {entry.reopen_reason && (
+                        <div className="history-reason">
+                          <strong>Reason for reopening</strong>
+                          <p>{entry.reopen_reason}</p>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setHistoryInquiry(null)}
+              >
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* View and edit inquiry details */}
+      {detailsInquiry && (
+        <div className="modal-backdrop">
+          <section
+            className="modal-card details-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="details-title"
+          >
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">CUSTOMER INQUIRY</p>
+                <h2 id="details-title">
+                  Inquiry #{detailsInquiry.id}
+                </h2>
+                <p className="muted">
+                  View or correct customer inquiry information.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close details"
+                disabled={editSaving}
+                onClick={() => setDetailsInquiry(null)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {!isEditing ? (
+              <>
+                {/* Read-only inquiry information */}
+                <div className="details-grid">
+                  <div>
+                    <span>Customer name</span>
+                    <strong>{detailsInquiry.customer_name}</strong>
+                  </div>
+
+                  <div>
+                    <span>Customer contact</span>
+                    <strong>{detailsInquiry.customer_contact}</strong>
+                  </div>
+
+                  <div>
+                    <span>Subject</span>
+                    <strong>{detailsInquiry.subject}</strong>
+                  </div>
+
+                  <div>
+                    <span>Received through</span>
+                    <strong>{detailsInquiry.source_channel}</strong>
+                  </div>
+
+                  <div>
+                    <span>Status</span>
+                    <strong>{detailsInquiry.status}</strong>
+                  </div>
+
+                  <div>
+                    <span>Created</span>
+                    <strong>
+                      {new Date(detailsInquiry.created_at).toLocaleString()}
+                    </strong>
+                  </div>
+
+                  <div className="details-full">
+                    <span>Description</span>
+                    <p>{detailsInquiry.description}</p>
+                  </div>
+                </div>
+
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => setDetailsInquiry(null)}
+                  >
+                    Close
+                  </button>
+
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => {
+                      setEditError('');
+                      setIsEditing(true);
+                    }}
+                  >
+                    Edit inquiry
+                  </button>
+                </div>
+              </>
+            ) : (
+              <form className="form-stack" onSubmit={saveInquiryEdit}>
+                {/* Only customer details can be edited; status is separate. */}
+                <label>
+                  Customer name
+                  <input
+                    value={editForm.customer_name}
+                    maxLength={150}
+                    minLength={2}
+                    required
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, customer_name: e.target.value })
+                    }
+                  />
+                </label>
+
+                <label>
+                  Customer contact
+                  <input
+                    value={editForm.customer_contact}
+                    maxLength={255}
+                    minLength={3}
+                    required
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, customer_contact: e.target.value })
+                    }
+                  />
+                </label>
+
+                <label>
+                  Subject
+                  <input
+                    value={editForm.subject}
+                    maxLength={200}
+                    minLength={3}
+                    required
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, subject: e.target.value })
+                    }
+                  />
+                </label>
+
+                <label>
+                  Description
+                  <textarea
+                    value={editForm.description}
+                    maxLength={2000}
+                    minLength={5}
+                    rows={4}
+                    required
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, description: e.target.value })
+                    }
+                  />
+                </label>
+
+                <label>
+                  Received through
+                  <select
+                    value={editForm.source_channel}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, source_channel: e.target.value })
+                    }
+                  >
+                    <option>Phone Call</option>
+                    <option>Email</option>
+                    <option>WhatsApp</option>
+                    <option>Website</option>
+                    <option>Other</option>
+                  </select>
+                </label>
+
+                {editError && (
+                  <p className="error-message" role="alert">
+                    {editError}
+                  </p>
+                )}
+
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={editSaving}
+                    onClick={() => setIsEditing(false)}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={editSaving}
+                  >
+                    {editSaving ? 'Saving...' : 'Save changes'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </section>
+        </div>
+      )}
+
     </div>
   );
 }
